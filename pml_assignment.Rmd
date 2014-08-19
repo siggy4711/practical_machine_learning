@@ -1,0 +1,131 @@
+---
+title: "pml_assignment"
+author: "Eric van Mulken"
+date: "Monday, August 18, 2014"
+output: html_document
+---
+
+#Practical Machine Learning Assignment
+
+This article is the class project of the "Practical Machine Learning"(pml) course, given by the Johns Hopkins Bloomberg School of Public Health.
+
+The article investigates the predictability of correct physical exercise execution through measurements of activity monitors, there are 6 participants in the study. 
+
+Participant are asked to perform dumbbell biceps curls in 5 different ways:
+
+* (Class A)  exactly according to the specification 
+* (Class B)  throwing the elbows to the front 
+* (Class C)  lifting the dumbbell only halfway 
+* (Class D)  lowering the dumbbell only halfway 
+* (Class E)  throwing the hips to the front 
+
+Class A is the correct way to perform the exercise. This exercise execution class is recorded in the _classe_ variable of the used dataset, it is the _classe_ variable that we are predicting from other variables. The _classe_ variable denotes the activity quality, it has values A,B,C,D,E.
+
+An exact specification of the experiment can be retrieved from [Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201) . Velloso et al. also provided the data of the study to the public, we use this data in our project.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+setwd("F:/dload/coursera/practical machine learning/class_project/practical_machine_learning")
+suppressMessages(library(caret))
+suppressMessages(library(randomForest))
+set.seed(471169)
+dbnrows=-1
+```
+
+## Data
+The dataset is downloaded from:
+
+[dataset URL](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv).
+
+Reading local copy:
+
+```{r}
+data.raw <- read.csv("../../pml-training.csv",header=TRUE)
+```
+This dataset has 19622 observations of 160 variables.
+
+## Preprocessing
+Only the measures of activity monitors and the _classe_ field are of interest so we ignore other fields. There are initially 160 variables, we keep 154 in this first step.
+
+```{r}
+acclMeter <- !names(data.raw) %in% c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","num_window")
+data.raw <- data.raw[,acclMeter]
+```
+A first inspection shows that there are features with very little observations, these features are also dropped from the dataset. In this step we keep 87 variables of the 154.
+```{r}
+countNA <- apply(data.raw,2,function(c) sum(is.na(c)))
+keepNA <- countNA==0
+data.raw2<-data.raw[,keepNA]
+```
+Next we remove the features that have too little variation from the dataset. In this step we keep 53 variables of the 87.
+```{r}
+nzv <- nearZeroVar(data.raw2)
+data.raw3 <- data.raw2[,-nzv]
+```
+
+Next we partition the data set in a training set and a cross validation set, the training set will be used for model estimation, the crossvalidation set will be used to obtain quality measures of the model, eg the accuracy of the prediction of the _classe_ value.
+
+```{r}
+isNum <- lapply(data.raw3, class) %in% c("numeric","integer")
+inTrain <- createDataPartition(y=data.raw3$classe,p=0.75, list=FALSE)
+training <- data.raw3[inTrain,]
+testing <- data.raw3[-inTrain,]
+```
+
+To improve the running time of model estimation and model fitness we center and scale all datasets, we first obtain center and scale measures of numerical variables for the training set and apply these measures to cross validation and training set.
+```{r}
+preObj <- preProcess(training[,isNum ],method=c("center","scale"))
+trainingPreprocessed <- predict(preObj,training[,isNum ])
+trainingPreprocessed$classe <-training$classe
+
+testingPreprocessed <- predict(preObj,testing[,isNum ])
+testingPreprocessed$classe <-testing$classe
+```
+Further preprocessing is not needed, there are no more missing observations so imputing is not necessary. Principal components derivation and normalisation are also not needed for the RandomForest algorithm that we are going to use.
+
+## Model estimation
+Now we are ready for the real work, the search for a model that fits the training data well and hopefully predicts the _classe_ variable in the crossvalidation set with high accuracy. We opt for the Random Forest model developed by Leo Breiman and Adele Cutler [Wikipedia Article on Random Forest](http://en.wikipedia.org/wiki/Random_forest). Random Forests remove much of the complications that arise during model search, these complications include highly correlated features, nonlinear features.
+Initially we used the _train_ function of the caret package, _train_ will try multiple models and chooses a final model as best fit, we use this final model for further estimation. The final model of _train_ has an optimal value for mtry of 2, mtry is the number of variables randomly sampled for at each split of a tree. We use this value to estimate a randomforest model with 4096 nodes.
+```{r}
+rf <- randomForest(classe~., data=trainingPreprocessed, mtry=2, ntree=4096, importance=TRUE)
+```
+
+## In sample error
+With the estimated model we can determine how well the model fits the training and test data, we do this by comparing the estimated _classe_ with the true _classe_ values. First we calculate the confusion matrix of the predicted vs true _classe_ using the training data, this will render the in-sample errors.
+```{r,message=FALSE,warning=FALSE}
+cminsample <- confusionMatrix(predict(rf,trainingPreprocessed), trainingPreprocessed$classe)
+cminsample$table
+```
+As can be seen, predicted _classe_ values were all correct, this means 100% prediction accuracy on the training data set.
+
+## out of sample error
+To verify how well the model predicts outside the data used for model building we must crossvalidate the model by calculating the confusion matrix of the predicted vs true _classe_ for the test data set. We expect the accuracy to be very high, near the 100% mark.
+
+```{r}
+cmoutsample <- confusionMatrix(predict(rf, testingPreprocessed), testingPreprocessed$classe)
+cmoutsample
+```
+There are very little mispredictions when using the crossvalidation(test) set, the accuracy is 99.3%. When comparing the correct exercise execution class A against the wrong execution classes the accuracy is even higher, only 5 out of 4904 observations are not correctly classified, ie 99.9% accuracy.
+
+##Conclusion
+We built a model using the RandomForest algorithm to predict the _classe_ variable that describes the way a fitness exercise is executed. After using 75% of 19622 observations to train the model we predict the _classe_ variable on the remaining 25% for crossvalidation. The fitted model is extremely accurate, it predicts 99.3% of the time the _classe_ correctly and when considering if the exercise is done correctly we even have 99.9% accuracy.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
